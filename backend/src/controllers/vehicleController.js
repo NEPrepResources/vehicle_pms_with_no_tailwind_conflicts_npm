@@ -28,7 +28,6 @@ const getVehicles = async (req, res) => {
     let query, countQuery, params;
 
     if (isAdmin) {
-      // Admins see all vehicles
       countQuery = `
         SELECT COUNT(*) 
         FROM vehicles 
@@ -47,7 +46,7 @@ const getVehicles = async (req, res) => {
       `;
       params = [searchQuery, limit, offset];
     } else {
-      // Regular users see only their vehicles
+      
       countQuery = `
         SELECT COUNT(*) 
         FROM vehicles 

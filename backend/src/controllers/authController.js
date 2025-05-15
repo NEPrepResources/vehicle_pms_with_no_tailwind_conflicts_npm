@@ -7,24 +7,20 @@ const register = async (req, res) => {
   const { name, email, password } = req.body;
 
   try {
-    // Check if email already exists
     const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
     if (userResult.rowCount > 0) {
       return res.status(400).json({ error: 'Email already exists' });
     }
 
-    // Check for existing admin
     const adminResult = await pool.query('SELECT COUNT(*) FROM users WHERE role = $1', ['admin']);
     if (adminResult.rows[0].count > 0) {
       console.log('Admin already exists, only user role allowed');
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit OTP
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes from now
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString(); 
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000)
 
-    // Insert user
     const result = await pool.query(
       'INSERT INTO users (name, email, password, role, is_verified) VALUES ($1, $2, $3, $4, $5) RETURNING *',
       [name, email, hashedPassword, 'user', false]
@@ -32,13 +28,11 @@ const register = async (req, res) => {
 
     const user = result.rows[0];
 
-    // Store OTP
     await pool.query(
       'INSERT INTO otps (user_id, otp_code, expires_at) VALUES ($1, $2, $3)',
       [user.id, otpCode, expiresAt]
     );
 
-    // Send OTP email
     try {
       await sendOtpEmail(email, otpCode);
       console.log('OTP email sent to:', email);

@@ -2,7 +2,7 @@ const pool = require('../config/db');
 
 const bulkCreateSlots = async (req, res) => {
   const userId = req.user.id;
-  const { slots } = req.body; // Array of { slot_number, size, vehicle_type, location }
+  const { slots } = req.body; 
   try {
     const values = slots.map(
       (slot, index) =>
