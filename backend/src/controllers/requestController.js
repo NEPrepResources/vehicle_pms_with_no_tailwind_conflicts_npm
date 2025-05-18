@@ -5,8 +5,14 @@ const createRequest = async (req, res) => {
   const userId = req.user.id;
   const { vehicle_id } = req.body;
   try {
+    // Sanitize vehicle_id: ensure it's a positive integer
+    const sanitizedVehicleId = parseInt(vehicle_id);
+    if (isNaN(sanitizedVehicleId) || sanitizedVehicleId <= 0) {
+      return res.status(400).json({ error: 'Invalid vehicle ID' });
+    }
+
     const vehicleResult = await pool.query('SELECT * FROM vehicles WHERE id = $1 AND user_id = $2', [
-      vehicle_id,
+      sanitizedVehicleId,
       userId,
     ]);
     if (vehicleResult.rowCount === 0) {
@@ -15,11 +21,11 @@ const createRequest = async (req, res) => {
 
     const result = await pool.query(
       'INSERT INTO slot_requests (user_id, vehicle_id, request_status) VALUES ($1, $2, $3) RETURNING *',
-      [userId, vehicle_id, 'pending']
+      [userId, sanitizedVehicleId, 'pending']
     );
     await pool.query('INSERT INTO logs (user_id, action) VALUES ($1, $2)', [
       userId,
-      `Slot request created for vehicle ${vehicle_id}`,
+      `Slot request created for vehicle ${sanitizedVehicleId}`,
     ]);
     res.status(201).json(result.rows[0]);
   } catch (error) {
@@ -34,7 +40,9 @@ const getRequests = async (req, res) => {
   const offset = (page - 1) * limit;
   const isAdmin = req.user.role === 'admin';
   try {
-    const searchQuery = `%${search}%`;
+    // Sanitize search input: trim whitespace and replace multiple spaces with a single space
+    const sanitizedSearch = search.trim().replace(/\s+/g, ' ');
+    const searchQuery = `%${sanitizedSearch}%`;
     let query = `
       SELECT sr.*, v.plate_number, v.vehicle_type
       FROM slot_requests sr
@@ -87,8 +95,14 @@ const updateRequest = async (req, res) => {
   const { id } = req.params;
   const { vehicle_id } = req.body;
   try {
+    // Sanitize vehicle_id: ensure it's a positive integer
+    const sanitizedVehicleId = parseInt(vehicle_id);
+    if (isNaN(sanitizedVehicleId) || sanitizedVehicleId <= 0) {
+      return res.status(400).json({ error: 'Invalid vehicle ID' });
+    }
+
     const vehicleResult = await pool.query('SELECT * FROM vehicles WHERE id = $1 AND user_id = $2', [
-      vehicle_id,
+      sanitizedVehicleId,
       userId,
     ]);
     if (vehicleResult.rowCount === 0) {
@@ -97,7 +111,7 @@ const updateRequest = async (req, res) => {
 
     const result = await pool.query(
       'UPDATE slot_requests SET vehicle_id = $1 WHERE id = $2 AND user_id = $3 AND request_status = $4 RETURNING *',
-      [vehicle_id, id, userId, 'pending']
+      [sanitizedVehicleId, id, userId, 'pending']
     );
     if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Request not found or not editable' });
@@ -211,13 +225,15 @@ const approveRequest = async (req, res) => {
 const rejectRequest = async (req, res) => {
   const userId = req.user.id;
   const { id } = req.params;
-  const { reason } = req.body; 
+  const { reason } = req.body;
 
   if (req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin access required' });
   }
 
-  if (!reason) {
+  // Sanitize reason: trim whitespace and ensure it's not empty
+  const sanitizedReason = reason?.trim();
+  if (!sanitizedReason) {
     return res.status(400).json({ error: 'Rejection reason is required' });
   }
 
@@ -245,14 +261,14 @@ const rejectRequest = async (req, res) => {
     const slotLocation = slotResult.rowCount > 0 ? slotResult.rows[0].location : 'unknown';
 
     const result = await pool.query(
-      'UPDATE slot_requests SET request_status = $1 WHERE id = $2 AND request_status = $3 RETURNING *',
-      ['rejected', id, 'pending']
+      'UPDATE slot_requests SET request_status = $1, rejection_reason = $2 WHERE id = $3 AND request_status = $4 RETURNING *',
+      ['rejected', sanitizedReason, id, 'pending']
     );
 
     let emailStatus = 'sent';
     try {
       console.log('Attempting to send rejection email to:', email);
-      await sendRejectionEmail(email, { plate_number }, slotLocation, reason);
+      await sendRejectionEmail(email, { plate_number }, slotLocation, sanitizedReason);
     } catch (emailError) {
       console.error('Email sending error:', emailError);
       emailStatus = 'failed';
@@ -260,7 +276,7 @@ const rejectRequest = async (req, res) => {
 
     await pool.query('INSERT INTO logs (user_id, action) VALUES ($1, $2)', [
       userId,
-      `Slot request ${id} rejected with reason: ${reason}, email ${emailStatus}`,
+      `Slot request ${id} rejected with reason: ${sanitizedReason}, email ${emailStatus}`,
     ]);
 
     res.json({ message: 'Request rejected', request: result.rows[0], emailStatus });

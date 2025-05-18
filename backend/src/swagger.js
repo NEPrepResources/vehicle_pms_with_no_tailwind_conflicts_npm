@@ -18,6 +18,9 @@ const options = {
         },
       },
     },
+     security: [{
+      bearerAuth: []
+    }]
   },
   apis: ['./src/routes/*.js'],
 };

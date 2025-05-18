@@ -12,7 +12,7 @@ const ParkingSlots = () => {
   const [slots, setSlots] = useState([]);
   const [meta, setMeta] = useState({ totalItems: 0, currentPage: 1, totalPages: 1 });
   const [search, setSearch] = useState('');
-  const [debouncedSearch] = useDebounce(search, 500);
+  const [debouncedSearch] = useDebounce(search.trim().replace(/\s+/g, ' '), 500);
   const [page, setPage] = useState(1);
   const [limit] = useState(10);
   const [loading, setLoading] = useState(false);
@@ -64,20 +64,35 @@ const ParkingSlots = () => {
     setError('');
     const { count, location, size, vehicle_type } = bulkForm;
     
-    // Validation
-    if (!count || !location || !size || !vehicle_type) {
+    // Sanitize and validate inputs
+    const sanitizedCount = parseInt(count);
+    const sanitizedLocation = location.trim();
+    const sanitizedSize = size.trim().toLowerCase();
+    const sanitizedVehicleType = vehicle_type.trim().toLowerCase();
+
+    if (!sanitizedCount || !sanitizedLocation || !sanitizedSize || !sanitizedVehicleType) {
       setError('All fields are required');
       return;
     }
     
-    const countNum = parseInt(count);
-    if (isNaN(countNum)) {
+    if (isNaN(sanitizedCount)) {
       setError('Count must be a number');
       return;
     }
     
-    if (countNum <= 0 || countNum > 100) {
+    if (sanitizedCount <= 0 || sanitizedCount > 100) {
       setError('Count must be between 1 and 100');
+      return;
+    }
+
+    const validSizes = ['small', 'medium', 'large'];
+    const validVehicleTypes = ['car', 'taxi', 'truck', 'any'];
+    if (!validSizes.includes(sanitizedSize)) {
+      setError(`Invalid size: ${sanitizedSize}. Must be one of ${validSizes.join(', ')}`);
+      return;
+    }
+    if (!validVehicleTypes.includes(sanitizedVehicleType)) {
+      setError(`Invalid vehicle type: ${sanitizedVehicleType}. Must be one of ${validVehicleTypes.join(', ')}`);
       return;
     }
 
@@ -86,11 +101,11 @@ const ParkingSlots = () => {
     try {
       // Generate unique slot numbers with prefix and sequence
       const prefix = `SLOT-${Math.floor(Math.random() * 1000)}`;
-      const slots = Array.from({ length: countNum }, (_, i) => ({
+      const slots = Array.from({ length: sanitizedCount }, (_, i) => ({
         slot_number: `${prefix}-${i + 1}`,
-        location,
-        size,
-        vehicle_type,
+        location: sanitizedLocation,
+        size: sanitizedSize,
+        vehicle_type: sanitizedVehicleType,
         status: 'available'
       }));
 
@@ -99,7 +114,7 @@ const ParkingSlots = () => {
       setBulkForm({ count: '', location: '', size: '', vehicle_type: '' });
       setShowBulkModal(false);
       await fetchSlots();
-      alert(`${countNum} parking slots created successfully!`);
+      alert(`${sanitizedCount} parking slots created successfully!`);
     } catch (err) {
       const errorMsg = err.response?.data?.error || 'Failed to create parking slots';
       setError(errorMsg);
@@ -114,18 +129,41 @@ const ParkingSlots = () => {
     setError('');
     const { slot_number, location, size, vehicle_type, status } = editForm;
     
-    if (!slot_number || !location || !size || !vehicle_type || !status) {
+    // Sanitize and validate inputs
+    const sanitizedSlotNumber = slot_number.trim();
+    const sanitizedLocation = location.trim();
+    const sanitizedSize = size.trim().toLowerCase();
+    const sanitizedVehicleType = vehicle_type.trim().toLowerCase();
+    const sanitizedStatus = status.trim().toLowerCase();
+
+    const validSizes = ['small', 'medium', 'large'];
+    const validVehicleTypes = ['car', 'taxi', 'truck', 'any'];
+    const validStatuses = ['available', 'unavailable'];
+
+    if (!sanitizedSlotNumber || !sanitizedLocation || !sanitizedSize || !sanitizedVehicleType || !sanitizedStatus) {
       setError('All fields are required');
+      return;
+    }
+    if (!validSizes.includes(sanitizedSize)) {
+      setError(`Invalid size: ${sanitizedSize}. Must be one of ${validSizes.join(', ')}`);
+      return;
+    }
+    if (!validVehicleTypes.includes(sanitizedVehicleType)) {
+      setError(`Invalid vehicle type: ${sanitizedVehicleType}. Must be one of ${validVehicleTypes.join(', ')}`);
+      return;
+    }
+    if (!validStatuses.includes(sanitizedStatus)) {
+      setError(`Invalid status: ${sanitizedStatus}. Must be one of ${validStatuses.join(', ')}`);
       return;
     }
 
     try {
       await updateParkingSlot(editId, { 
-        slot_number, 
-        location, 
-        size, 
-        vehicle_type, 
-        status 
+        slot_number: sanitizedSlotNumber, 
+        location: sanitizedLocation, 
+        size: sanitizedSize, 
+        vehicle_type: sanitizedVehicleType, 
+        status: sanitizedStatus 
       });
       
       setEditForm({ 
@@ -454,7 +492,7 @@ const ParkingSlots = () => {
               </div>
               
               <div className="mb-4">
-                <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="edit-status">
+                <label className="block text-gray-900 text-sm font-bold mb-2" htmlFor="edit-status">
                   Status
                 </label>
                 <select
@@ -462,7 +500,7 @@ const ParkingSlots = () => {
                   name="status"
                   value={editForm.status}
                   onChange={handleEditInputChange}
-                  className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                  className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-900 leading-tight focus:outline-none focus:shadow-outline"
                   required
                 >
                   <option value="">Select Status</option>

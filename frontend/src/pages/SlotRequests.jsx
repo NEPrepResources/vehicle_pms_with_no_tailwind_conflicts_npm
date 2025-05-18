@@ -7,7 +7,7 @@ const SlotRequests = () => {
   const [requests, setRequests] = useState([]);
   const [meta, setMeta] = useState({ totalItems: 0, currentPage: 1, totalPages: 1 });
   const [search, setSearch] = useState('');
-  const [debouncedSearch] = useDebounce(search, 500);
+  const [debouncedSearch] = useDebounce(search.trim().replace(/\s+/g, ' '), 500);
   const [page, setPage] = useState(1);
   const [limit] = useState(10);
   const [loading, setLoading] = useState(false);
@@ -44,12 +44,13 @@ const SlotRequests = () => {
   };
 
   const handleReject = async () => {
-    if (!rejectReason) {
+    const sanitizedReason = rejectReason.trim();
+    if (!sanitizedReason) {
       alert('Please provide a reason for rejection');
       return;
     }
     try {
-      const response = await rejectRequest(selectedRequestId, rejectReason);
+      const response = await rejectRequest(selectedRequestId, sanitizedReason);
       alert(`Request rejected. Email: ${response.data.emailStatus}`);
       setRejectReason('');
       setSelectedRequestId(null);

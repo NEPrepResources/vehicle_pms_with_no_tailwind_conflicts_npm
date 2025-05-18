@@ -7,7 +7,7 @@ const Users = () => {
   const [users, setUsers] = useState([]);
   const [meta, setMeta] = useState({ totalItems: 0, currentPage: 1, totalPages: 1 });
   const [search, setSearch] = useState('');
-  const [debouncedSearch] = useDebounce(search, 500);
+  const [debouncedSearch] = useDebounce(search.trim().replace(/\s+/g, ' '), 500);
   const [page, setPage] = useState(1);
   const [limit] = useState(10);
   const [loading, setLoading] = useState(false);

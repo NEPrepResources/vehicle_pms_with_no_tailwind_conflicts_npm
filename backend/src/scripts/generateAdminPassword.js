@@ -15,3 +15,4 @@ generatePassword();
 //   '$2b$10$wKpnPGCaNT.PV0ytMenvOOnKMh60DYh31nDv3EyECvWb3WbR.7fTW',
 //   'admin'
 // );
+// update users where id=1 set is_verified=t;

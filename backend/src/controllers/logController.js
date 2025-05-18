@@ -10,7 +10,9 @@ const getLogs = async (req, res) => {
   }
 
   try {
-    const searchQuery = `%${search}%`;
+    const sanitizedSearch = search.trim().replace(/\s+/g, ' ');
+    const searchQuery = `%${sanitizedSearch}%`;
+
     const query = `
       SELECT * FROM logs
       WHERE action ILIKE $1 OR user_id::text ILIKE $1

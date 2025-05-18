@@ -4,16 +4,39 @@ const createVehicle = async (req, res) => {
   const userId = req.user.id;
   const { plate_number, vehicle_type, size, other_attributes } = req.body;
   try {
+    // Sanitize and validate inputs
+    const sanitizedPlateNumber = plate_number?.trim().toUpperCase();
+    const sanitizedVehicleType = vehicle_type?.trim().toLowerCase();
+    const sanitizedSize = size?.trim().toLowerCase();
+    const sanitizedOtherAttributes = other_attributes && typeof other_attributes === 'object' ? other_attributes : {};
+
+    const validVehicleTypes = ['car', 'taxi', 'truck', 'any'];
+    const validSizes = ['small', 'medium', 'large'];
+
+    if (!sanitizedPlateNumber || !sanitizedVehicleType || !sanitizedSize) {
+      return res.status(400).json({ error: 'Plate number, vehicle type, and size are required' });
+    }
+    if (!validVehicleTypes.includes(sanitizedVehicleType)) {
+      return res.status(400).json({ error: `Invalid vehicle type: ${sanitizedVehicleType}. Must be one of ${validVehicleTypes.join(', ')}` });
+    }
+    if (!validSizes.includes(sanitizedSize)) {
+      return res.status(400).json({ error: `Invalid size: ${sanitizedSize}. Must be one of ${validSizes.join(', ')}` });
+    }
+    if (sanitizedPlateNumber.length > 20) {
+      return res.status(400).json({ error: 'Plate number must be 20 characters or less' });
+    }
+
     const result = await pool.query(
       'INSERT INTO vehicles (user_id, plate_number, vehicle_type, size, other_attributes) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-      [userId, plate_number, vehicle_type, size, other_attributes || {}]
+      [userId, sanitizedPlateNumber, sanitizedVehicleType, sanitizedSize, sanitizedOtherAttributes]
     );
     await pool.query('INSERT INTO logs (user_id, action) VALUES ($1, $2)', [
       userId,
-      `Vehicle ${plate_number} created`,
+      `Vehicle ${sanitizedPlateNumber} created`,
     ]);
     res.status(201).json(result.rows[0]);
   } catch (error) {
+    console.error('Create vehicle error:', error);
     res.status(400).json({ error: 'Plate number already exists or server error' });
   }
 };
@@ -24,7 +47,9 @@ const getVehicles = async (req, res) => {
   const { page = 1, limit = 10, search = '' } = req.query;
   const offset = (page - 1) * limit;
   try {
-    const searchQuery = `%${search}%`;
+    // Sanitize search input
+    const sanitizedSearch = search.trim().replace(/\s+/g, ' ');
+    const searchQuery = `%${sanitizedSearch}%`;
     let query, countQuery, params;
 
     if (isAdmin) {
@@ -46,7 +71,6 @@ const getVehicles = async (req, res) => {
       `;
       params = [searchQuery, limit, offset];
     } else {
-      
       countQuery = `
         SELECT COUNT(*) 
         FROM vehicles 
@@ -81,7 +105,7 @@ const getVehicles = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error(error);
+    console.error('Get vehicles error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 };
@@ -118,7 +142,7 @@ const getVehicleById = async (req, res) => {
     ]);
     res.json(result.rows[0]);
   } catch (error) {
-    console.error(error);
+    console.error('Get vehicle by ID error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 };
@@ -128,19 +152,42 @@ const updateVehicle = async (req, res) => {
   const { id } = req.params;
   const { plate_number, vehicle_type, size, other_attributes } = req.body;
   try {
+    // Sanitize and validate inputs
+    const sanitizedPlateNumber = plate_number?.trim().toUpperCase();
+    const sanitizedVehicleType = vehicle_type?.trim().toLowerCase();
+    const sanitizedSize = size?.trim().toLowerCase();
+    const sanitizedOtherAttributes = other_attributes && typeof other_attributes === 'object' ? other_attributes : {};
+
+    const validVehicleTypes = ['car', 'taxi', 'truck', 'any'];
+    const validSizes = ['small', 'medium', 'large'];
+
+    if (!sanitizedPlateNumber || !sanitizedVehicleType || !sanitizedSize) {
+      return res.status(400).json({ error: 'Plate number, vehicle type, and size are required' });
+    }
+    if (!validVehicleTypes.includes(sanitizedVehicleType)) {
+      return res.status(400).json({ error: `Invalid vehicle type: ${sanitizedVehicleType}. Must be one of ${validVehicleTypes.join(', ')}` });
+    }
+    if (!validSizes.includes(sanitizedSize)) {
+      return res.status(400).json({ error: `Invalid size: ${sanitizedSize}. Must be one of ${validSizes.join(', ')}` });
+    }
+    if (sanitizedPlateNumber.length > 20) {
+      return res.status(400).json({ error: 'Plate number must be 20 characters or less' });
+    }
+
     const result = await pool.query(
       'UPDATE vehicles SET plate_number = $1, vehicle_type = $2, size = $3, other_attributes = $4 WHERE id = $5 AND user_id = $6 RETURNING *',
-      [plate_number, vehicle_type, size, other_attributes || {}, id, userId]
+      [sanitizedPlateNumber, sanitizedVehicleType, sanitizedSize, sanitizedOtherAttributes, id, userId]
     );
     if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Vehicle not found' });
     }
     await pool.query('INSERT INTO logs (user_id, action) VALUES ($1, $2)', [
       userId,
-      `Vehicle ${plate_number} updated`,
+      `Vehicle ${sanitizedPlateNumber} updated`,
     ]);
     res.json(result.rows[0]);
   } catch (error) {
+    console.error('Update vehicle error:', error);
     res.status(400).json({ error: 'Plate number already exists or server error' });
   }
 };
@@ -168,7 +215,7 @@ const deleteVehicle = async (req, res) => {
     ]);
     res.json({ message: 'Vehicle deleted' });
   } catch (error) {
-    console.error(error);
+    console.error('Delete vehicle error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 };
