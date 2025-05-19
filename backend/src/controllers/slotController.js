@@ -4,7 +4,6 @@ const bulkCreateSlots = async (req, res) => {
   const userId = req.user.id;
   const { slots } = req.body;
   try {
-    // Validate and sanitize slots array
     if (!Array.isArray(slots) || slots.length === 0) {
       return res.status(400).json({ error: 'Slots array is required and cannot be empty' });
     }

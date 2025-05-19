@@ -6,16 +6,20 @@ const {
   deleteRequest,
   approveRequest,
   rejectRequest,
+  processPayment
 } = require('../controllers/requestController');
 const { authenticate, isAdmin } = require('../middleware/auth');
 
 const router = express.Router();
-
 /**
  * @swagger
  * /api/slot-requests:
  *   post:
- *     summary: Create a new slot request
+ *     summary: Create a new parking slot booking request
+ *     description: |
+ *       Creates a new parking slot request with booking details.
+ *       The system will calculate duration and amount (500 RWF per hour).
+ *       Requires start and end times in ISO 8601 format (e.g., "2023-05-20T08:00:00Z").
  *     tags: [Slot Requests]
  *     security:
  *       - bearerAuth: []
@@ -27,23 +31,76 @@ const router = express.Router();
  *             type: object
  *             required:
  *               - vehicle_id
+ *               - start_time
+ *               - end_time
  *             properties:
  *               vehicle_id:
  *                 type: integer
+ *                 description: ID of the vehicle to park
  *                 example: 1
+ *               start_time:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Booking start time in ISO 8601 format
+ *                 example: "2023-05-20T08:00:00Z"
+ *               end_time:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Booking end time in ISO 8601 format
+ *                 example: "2023-05-20T12:00:00Z"
  *     responses:
  *       201:
- *         description: Slot request created successfully
+ *         description: Parking slot booking request created successfully
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 id: { type: integer, example: 1 }
- *                 user_id: { type: integer, example: 1 }
- *                 vehicle_id: { type: integer, example: 1 }
- *                 request_status: { type: string, example: pending }
- *                 requested_at: { type: string, format: date-time }
+ *                 id:
+ *                   type: integer
+ *                   example: 1
+ *                 user_id:
+ *                   type: integer
+ *                   example: 1
+ *                 vehicle_id:
+ *                   type: integer
+ *                   example: 1
+ *                 request_status:
+ *                   type: string
+ *                   example: "pending"
+ *                 start_time:
+ *                   type: string
+ *                   format: date-time
+ *                   example: "2023-05-20T08:00:00Z"
+ *                 end_time:
+ *                   type: string
+ *                   format: date-time
+ *                   example: "2023-05-20T12:00:00Z"
+ *                 duration_hours:
+ *                   type: number
+ *                   format: float
+ *                   example: 4.0
+ *                 amount:
+ *                   type: number
+ *                   format: float
+ *                   example: 2000.00
+ *                 payment_status:
+ *                   type: string
+ *                   example: "unpaid"
+ *                 requested_at:
+ *                   type: string
+ *                   format: date-time
+ *                   example: "2023-05-19T10:15:30Z"
+ *       400:
+ *         description: Bad request
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "End time must be after start time"
  *       401:
  *         description: Unauthorized, invalid or missing token
  *       404:
@@ -52,7 +109,6 @@ const router = express.Router();
  *         description: Server error
  */
 router.post('/', authenticate, createRequest);
-
 /**
  * @swagger
  * /api/slot-requests:
@@ -302,5 +358,57 @@ router.put('/:id/approve', authenticate, isAdmin, approveRequest);
  *         description: Server error
  */
 router.put('/:id/reject', authenticate, isAdmin, rejectRequest);
+
+/**
+ * @swagger
+ * /api/slot-requests/pay:
+ *   post:
+ *     summary: Process payment for an approved slot request using slot number
+ *     tags: [Slot Requests]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - slot_number
+ *             properties:
+ *               slot_number:
+ *                 type: string
+ *                 description: The assigned slot number for payment
+ *                 example: "A12"
+ *     responses:
+ *       200:
+ *         description: Payment processed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message: 
+ *                   type: string
+ *                   example: Payment processed successfully
+ *                 slotNumber:
+ *                   type: string
+ *                   example: "A12"
+ *                 amount: 
+ *                   type: number
+ *                   example: 5000
+ *                 emailStatus: 
+ *                   type: string
+ *                   example: sent
+ *       400:
+ *         description: Bad request (missing slot number or payment already processed)
+ *       401:
+ *         description: Unauthorized, invalid or missing token
+ *       404:
+ *         description: Request not found, not approved, or not owned by user
+ *       500:
+ *         description: Server error
+ */
+router.post('/pay', authenticate, processPayment);
 
 module.exports = router;

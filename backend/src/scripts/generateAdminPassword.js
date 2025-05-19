@@ -8,11 +8,12 @@ async function generatePassword() {
 
 generatePassword();
 
-// INSERT INTO users (name, email, password, role)
+// INSERT INTO users (name, email, password, role, is_verified)
 // VALUES (
 //   'Admin User',
 //   'admin@park.com',
-//   '$2b$10$wKpnPGCaNT.PV0ytMenvOOnKMh60DYh31nDv3EyECvWb3WbR.7fTW',
-//   'admin'
+//   '$2b$10$/3u/I9isNfiVxXsML/mgD./cQFClYjpBo.gHOzAuGQm.ls472JM3C',
+//   'admin',
+//    t
 // );
 // update users where id=1 set is_verified=t;

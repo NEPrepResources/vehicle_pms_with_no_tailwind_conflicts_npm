@@ -8,11 +8,13 @@ const vehicleRoutes = require('./routes/vehicleRoutes');
 const slotRoutes = require('./routes/slotRoutes');
 const requestRoutes = require('./routes/requestRoutes');
 const logRoutes = require('./routes/logRoutes');
+const morgan = require('morgan');
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+app.use(morgan("dev"));
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.use('/api/auth', authRoutes);

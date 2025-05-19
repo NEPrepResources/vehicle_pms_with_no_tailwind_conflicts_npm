@@ -1,15 +1,47 @@
 const pool = require('../config/db');
-const { sendApprovalEmail, sendRejectionEmail } = require('../utils/email');
+const { 
+  sendRejectionEmail,
+  sendBookingConfirmationEmail,
+  sendPaymentConfirmationEmail 
+} = require('../utils/email');
+
+
+const calculateDurationAndAmount = (startTime, endTime) => {
+  const start = new Date(startTime);
+  const end = new Date(endTime);
+  const durationMs = end - start;
+  const durationHours = durationMs / (1000 * 60 * 60);
+  const amount = durationHours * 500; // 500 RWF per hour
+  return { durationHours, amount };
+};
 
 const createRequest = async (req, res) => {
   const userId = req.user.id;
-  const { vehicle_id } = req.body;
+  const { vehicle_id, start_time, end_time } = req.body;
   try {
     // Sanitize vehicle_id: ensure it's a positive integer
     const sanitizedVehicleId = parseInt(vehicle_id);
     if (isNaN(sanitizedVehicleId) || sanitizedVehicleId <= 0) {
       return res.status(400).json({ error: 'Invalid vehicle ID' });
     }
+
+     if (!start_time || !end_time) {
+      return res.status(400).json({ error: 'Start time and end time are required' });
+    }
+
+    const startTime = new Date(start_time);
+    const endTime = new Date(end_time);
+    
+    if (startTime >= endTime) {
+      return res.status(400).json({ error: 'End time must be after start time' });
+    }
+
+    if (startTime < new Date()) {
+      return res.status(400).json({ error: 'Start time cannot be in the past' });
+    }
+
+    const { durationHours, amount } = calculateDurationAndAmount(startTime, endTime);
+
 
     const vehicleResult = await pool.query('SELECT * FROM vehicles WHERE id = $1 AND user_id = $2', [
       sanitizedVehicleId,
@@ -20,12 +52,12 @@ const createRequest = async (req, res) => {
     }
 
     const result = await pool.query(
-      'INSERT INTO slot_requests (user_id, vehicle_id, request_status) VALUES ($1, $2, $3) RETURNING *',
-      [userId, sanitizedVehicleId, 'pending']
+      'INSERT INTO slot_requests (user_id, vehicle_id, request_status, start_time, end_time, duration_hours, amount) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+      [userId, sanitizedVehicleId, 'pending', startTime, endTime, durationHours, amount]
     );
     await pool.query('INSERT INTO logs (user_id, action) VALUES ($1, $2)', [
       userId,
-      `Slot request created for vehicle ${sanitizedVehicleId}`,
+      `Slot request created for vehicle ${sanitizedVehicleId} from ${startTime} to ${endTime}`,
     ]);
     res.status(201).json(result.rows[0]);
   } catch (error) {
@@ -171,7 +203,29 @@ const approveRequest = async (req, res) => {
       return res.status(404).json({ error: 'Request not found or already processed' });
     }
 
-    const { vehicle_type, size, plate_number, user_id, email } = requestResult.rows[0];
+    const request = requestResult.rows[0];
+    const { vehicle_type, size, plate_number, user_id, email, start_time, end_time, duration_hours, amount } = request;
+
+     const slotConflictResult = await pool.query(
+      `SELECT ps.id, ps.slot_number, ps.location 
+       FROM parking_slots ps
+       JOIN slot_requests sr ON ps.id = sr.slot_id
+       WHERE ps.vehicle_type = $1 
+       AND ps.size = $2
+       AND sr.request_status = 'approved'
+       AND sr.payment_status = 'paid'
+       AND (
+         (sr.start_time < $4 AND sr.end_time > $3)
+       )`,
+      [vehicle_type, size, start_time, end_time]
+    );
+
+    if (slotConflictResult.rowCount > 0) {
+      return res.status(400).json({ 
+        error: 'No available slots for the requested time period',
+        conflicting_slots: slotConflictResult.rows
+      });
+    }
 
     const slotResult = await pool.query(
       'SELECT * FROM parking_slots WHERE vehicle_type = $1 AND size = $2 AND status = $3 LIMIT 1',
@@ -203,7 +257,18 @@ const approveRequest = async (req, res) => {
     let emailStatus = 'sent';
     try {
       console.log('Attempting to send approval email to:', email);
-      await sendApprovalEmail(email, slot.slot_number, { plate_number }, slot.location);
+      await sendBookingConfirmationEmail(
+        email, 
+        slot.slot_number, 
+        { plate_number }, 
+        slot.location,
+        {
+          startTime: start_time,
+          endTime: end_time,
+          durationHours: duration_hours,
+          amount: amount
+        }
+      );
     } catch (emailError) {
       console.error('Email sending error:', emailError);
       emailStatus = 'failed';
@@ -214,7 +279,16 @@ const approveRequest = async (req, res) => {
       `Slot request ${id} approved, assigned slot ${slot.slot_number}, email ${emailStatus}`,
     ]);
 
-    res.json({ message: 'Request approved', slot, emailStatus });
+    res.json({ message: 'Request approved', 
+      slot, 
+        bookingDetails: {
+        startTime: start_time,
+        endTime: end_time,
+        duration: duration_hours,
+        amount: amount
+      },
+      emailStatus
+     });
   } catch (error) {
     await pool.query('ROLLBACK');
     console.error('Approve request error:', error);
@@ -286,4 +360,81 @@ const rejectRequest = async (req, res) => {
   }
 };
 
-module.exports = { createRequest, getRequests, updateRequest, deleteRequest, approveRequest, rejectRequest };
+const processPayment = async (req, res) => {
+  const userId = req.user.id;
+  const { slot_number } = req.body;
+
+  try {
+    const requestResult = await pool.query(
+      `SELECT sr.*, v.plate_number, u.email 
+       FROM slot_requests sr
+       JOIN vehicles v ON sr.vehicle_id = v.id
+       JOIN users u ON sr.user_id = u.id
+       WHERE sr.slot_number = $1 AND sr.user_id = $2 AND sr.request_status = 'approved'`,
+      [slot_number, userId]
+    );
+
+    if (requestResult.rowCount === 0) {
+      return res.status(404).json({ 
+        error: 'Request not found, not approved, or not owned by user' 
+      });
+    }
+
+    const request = requestResult.rows[0];
+
+    if (request.payment_status === 'paid') {
+      return res.status(400).json({ error: 'Payment already processed' });
+    }
+    
+    await pool.query(
+      `UPDATE slot_requests 
+       SET payment_status = 'paid', payment_date = CURRENT_TIMESTAMP 
+       WHERE slot_number = $1 AND user_id = $2`,
+      [slot_number, userId]
+    );
+
+    let emailStatus = 'sent';
+    try {
+      await sendPaymentConfirmationEmail(
+        request.email,
+        request.slot_number,
+        { plate_number: request.plate_number },
+        {
+          startTime: request.start_time,
+          endTime: request.end_time,
+          duration: request.durationHours,
+          amount: request.amount
+        }
+      );
+    } catch (emailError) {
+      console.error('Email sending error:', emailError);
+      emailStatus = 'failed';
+    }
+
+    await pool.query('INSERT INTO logs (user_id, action) VALUES ($1, $2)', [
+      userId,
+      `Payment processed for slot ${slot_number}, amount ${request.amount} RWF`,
+    ]);
+
+    res.json({ 
+      message: 'Payment processed successfully',
+      slotNumber: slot_number,
+      amount: request.amount,
+      emailStatus
+    });
+  } catch (error) {
+    console.error('Payment processing error:', error);
+    res.status(500).json({ error: 'Server error', details: error.message });
+  }
+};
+
+
+module.exports = { 
+  createRequest, 
+  getRequests, 
+  updateRequest, 
+  deleteRequest, 
+  approveRequest, 
+  rejectRequest,
+  processPayment 
+};

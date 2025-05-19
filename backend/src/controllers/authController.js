@@ -1,7 +1,7 @@
 const pool = require('../config/db');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { sendOtpEmail } = require('../utils/email');
+const { sendOtpEmail, sendResetPasswordEmail } = require('../utils/email');
 
 const register = async (req, res) => {
   const { name, email, password } = req.body;
@@ -141,4 +141,131 @@ const login = async (req, res) => {
   }
 };
 
-module.exports = { register, login, verifyOtp, resendOtp };
+const forgotPassword = async (req, res) => {
+  const { email } = req.body;
+  
+  if (!email) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+
+  try {
+    const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (userResult.rowCount === 0) {
+      // Don't reveal if email exists for security
+      return res.json({ message: 'If this email is registered, you will receive a password reset OTP' });
+    }
+
+    const user = userResult.rows[0];
+    
+    // Generate a 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes expiry
+
+    await pool.query(
+      'INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES ($1, $2, $3) ' +
+      'ON CONFLICT (user_id) DO UPDATE SET token = $2, expires_at = $3, used = FALSE',
+      [user.id, otp, expiresAt]
+    );
+
+    try {
+      await sendOtpEmail(email, otp);
+      console.log('Password reset OTP sent to:', email);
+    } catch (emailError) {
+      console.error('Email sending error:', emailError);
+      return res.status(500).json({ error: 'Failed to send OTP email' });
+    }
+
+    await pool.query('INSERT INTO logs (user_id, action) VALUES ($1, $2)', [
+      user.id,
+      'Requested password reset OTP',
+    ]);
+
+    res.json({ 
+      message: 'OTP sent to email',
+      // In production, don't send OTP back in response
+      // This is just for testing/demo purposes
+      otp: process.env.NODE_ENV === 'development' ? otp : undefined
+    });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ error: 'Server error', details: error.message });
+  }
+};
+
+const resetPassword = async (req, res) => {
+  const { email, newPassword, otp } = req.body;
+  
+  if (!email || !newPassword) {
+    return res.status(400).json({ error: 'Email and new password are required' });
+  }
+
+  if (!otp) {
+    return res.status(400).json({ error: 'OTP is required' });
+  }
+
+  try {
+    const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (userResult.rowCount === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = userResult.rows[0];
+
+    const tokenResult = await pool.query(
+      'SELECT * FROM password_reset_tokens WHERE user_id = $1 AND token = $2 AND expires_at > NOW() AND used = FALSE',
+      [user.id, otp]
+    );
+    
+    if (tokenResult.rowCount === 0) {
+      return res.status(400).json({ error: 'Invalid or expired OTP' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    await pool.query('BEGIN');
+    try {
+      // Update password
+      await pool.query('UPDATE users SET password = $1 WHERE id = $2', [
+        hashedPassword,
+        user.id,
+      ]);
+      
+      // Mark OTP as used
+      await pool.query('UPDATE password_reset_tokens SET used = TRUE WHERE token = $1', [
+        otp,
+      ]);
+
+      // Send confirmation email
+      try {
+        await sendPasswordChangedEmail(email);
+      } catch (emailError) {
+        console.error('Password change notification email failed:', emailError);
+        // Don't fail the whole operation if email fails
+      }
+
+      await pool.query('INSERT INTO logs (user_id, action) VALUES ($1, $2)', [
+        user.id,
+        'Password reset successful',
+      ]);
+      
+      await pool.query('COMMIT');
+    } catch (transactionError) {
+      await pool.query('ROLLBACK');
+      throw transactionError;
+    }
+
+    res.json({ message: 'Password reset successfully' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({ error: 'Server error', details: error.message });
+  }
+};
+
+module.exports = { 
+  register, 
+  login, 
+  verifyOtp, 
+  resendOtp,
+  forgotPassword,
+  resetPassword
+};

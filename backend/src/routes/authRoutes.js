@@ -1,6 +1,13 @@
 const express = require('express');
-const { register, login, verifyOtp, resendOtp } = require('../controllers/authController');
-const validateUser  = require('../middleware/validateUser')
+const { 
+  register, 
+  login, 
+  verifyOtp, 
+  resendOtp,
+  forgotPassword,
+  resetPassword
+} = require('../controllers/authController');
+const validateUser = require('../middleware/validateUser');
 
 const router = express.Router();
 
@@ -144,5 +151,109 @@ router.post('/resend-otp', resendOtp);
  *         description: Server error
  */
 router.post('/login', login);
+
+
+/**
+ * @swagger
+ * /api/auth/forgot-password:
+ *   post:
+ *     summary: Request password reset OTP
+ *     description: |
+ *       Initiates a password reset by sending an OTP to the user's email.
+ *       The OTP is valid for 15 minutes.
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: User's registered email address
+ *                 example: "user@example.com"
+ *     responses:
+ *       200:
+ *         description: OTP sent successfully (always returns success to prevent email enumeration)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "OTP sent to email"
+ *       400:
+ *         description: Bad request (missing email)
+ *       500:
+ *         description: Server error
+ */
+router.post('/forgot-password', forgotPassword);
+
+/**
+ * @swagger
+ * /api/auth/reset-password:
+ *   post:
+ *     summary: Reset user password with OTP
+ *     description: |
+ *       Resets the user's password after verifying the OTP.
+ *       Requires the OTP sent to the user's email and the new password.
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - newPassword
+ *               - otp
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: User's registered email address
+ *                 example: "user@example.com"
+ *               newPassword:
+ *                 type: string
+ *                 format: password
+ *                 description: New password (min 8 characters)
+ *                 example: "NewSecurePassword123!"
+ *               otp:
+ *                 type: string
+ *                 description: 6-digit OTP received via email
+ *                 example: "123456"
+ *     responses:
+ *       200:
+ *         description: Password reset successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Password reset successfully"
+ *       400:
+ *         description: Bad request (missing fields, invalid OTP, or expired OTP)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Invalid or expired OTP"
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Server error
+ */
+router.post('/reset-password', resetPassword);
 
 module.exports = router;
